@@ -19,7 +19,6 @@ import com.aipet.app.service.PetService
 
 class MainActivity : ComponentActivity() {
 
-    // Daftar semua izin yang dibutuhkan aplikasi
     private val requiredPermissions = mutableListOf(
         android.Manifest.permission.CAMERA,
         android.Manifest.permission.RECORD_AUDIO
@@ -32,12 +31,11 @@ class MainActivity : ComponentActivity() {
     private val permissionsLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
-        // Pastikan semua izin penting (Kamera & Mic) disetujui
         val allGranted = permissions.entries.all { it.value }
         if (allGranted) {
             checkOverlayPermission()
         } else {
-            Toast.makeText(this, "AI Pet membutuhkan semua izin untuk berfungsi penuh.", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "AI Pet membutuhkan semua izin untuk berfungsi.", Toast.LENGTH_LONG).show()
             finish()
         }
     }
@@ -49,7 +47,6 @@ class MainActivity : ComponentActivity() {
                 Text("Memeriksa konfigurasi sensor AI Pet...")
             }
         }
-        
         checkAndRequestPermissions()
     }
 
@@ -91,12 +88,16 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun startPetService() {
-        val intent = Intent(this, PetService::class.java)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            startForegroundService(intent)
-        } else {
-            startService(intent)
+        try {
+            val intent = Intent(this, PetService::class.java)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                startForegroundService(intent)
+            } else {
+                startService(intent)
+            }
+            // MODIFIKASI: Jangan panggil finish() di sini untuk memberi waktu OS memvalidasi Service jendela latar depan
+        } catch (e: Exception) {
+            e.printStackTrace()
         }
-        finish()
     }
 }
