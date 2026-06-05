@@ -4,11 +4,11 @@ plugins {
 }
 
 android {
-    namespace = "com.android.aipet.app"
+    namespace = "com.aipet.app"
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "com.android.aipet.app"
+        applicationId = "com.aipet.app"
         minSdk = 26
         targetSdk = 34
         versionCode = 1
