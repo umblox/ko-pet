@@ -1,12 +1,11 @@
 plugins {
     id("com.android.application") version "8.2.2"
     id("org.jetbrains.kotlin.android") version "1.9.22"
-    }
+}
 
 android {
     namespace = "com.android.aipet.app"
     compileSdk = 34
-    }
 
     defaultConfig {
         applicationId = "com.android.aipet.app"
@@ -59,5 +58,3 @@ dependencies {
     implementation("androidx.room:room-ktx:$roomVersion")
     annotationProcessor("androidx.room:room-compiler:$roomVersion")
 }
-
-
