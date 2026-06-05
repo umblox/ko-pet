@@ -19,13 +19,25 @@ import com.aipet.app.service.PetService
 
 class MainActivity : ComponentActivity() {
 
-    private val permissionLauncher = registerForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { isGranted ->
-        if (isGranted) {
+    // Daftar semua izin yang dibutuhkan aplikasi
+    private val requiredPermissions = mutableListOf(
+        android.Manifest.permission.CAMERA,
+        android.Manifest.permission.RECORD_AUDIO
+    ).apply {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            add(android.Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }.toTypedArray()
+
+    private val permissionsLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissions ->
+        // Pastikan semua izin penting (Kamera & Mic) disetujui
+        val allGranted = permissions.entries.all { it.value }
+        if (allGranted) {
             checkOverlayPermission()
         } else {
-            Toast.makeText(this, "Izin kamera mutlak dibutuhkan oleh AI Pet.", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "AI Pet membutuhkan semua izin untuk berfungsi penuh.", Toast.LENGTH_LONG).show()
             finish()
         }
     }
@@ -34,16 +46,22 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         setContent {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text("Memeriksa izin akses AI Pet...")
+                Text("Memeriksa konfigurasi sensor AI Pet...")
             }
         }
         
-        // Cek izin kamera terlebih dahulu
-        if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.CAMERA) 
-            == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+        checkAndRequestPermissions()
+    }
+
+    private fun checkAndRequestPermissions() {
+        val hasAllPermissions = requiredPermissions.all {
+            ContextCompat.checkSelfPermission(this, it) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        }
+
+        if (hasAllPermissions) {
             checkOverlayPermission()
         } else {
-            permissionLauncher.launch(android.Manifest.permission.CAMERA)
+            permissionsLauncher.launch(requiredPermissions)
         }
     }
 
@@ -53,9 +71,9 @@ class MainActivity : ComponentActivity() {
             val intent = Intent(
                 Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
                 Uri.parse("package:$packageName")
-            )
-            // Menggunakan FLAG_ACTIVITY_NEW_TASK agar aman dibuka dari context mana saja
-            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            ).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
             startActivity(intent)
         } else {
             startPetService()
@@ -64,9 +82,10 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-        // Jika user kembali dari pengaturan overlay, cek ulang apakah izin sudah diberikan
-        if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.CAMERA) 
-            == android.content.pm.PackageManager.PERMISSION_GRANTED && Settings.canDrawOverlays(this)) {
+        val hasAllPermissions = requiredPermissions.all {
+            ContextCompat.checkSelfPermission(this, it) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        }
+        if (hasAllPermissions && Settings.canDrawOverlays(this)) {
             startPetService()
         }
     }
@@ -74,10 +93,10 @@ class MainActivity : ComponentActivity() {
     private fun startPetService() {
         val intent = Intent(this, PetService::class.java)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            startForegroundService(intent) // Wajib gunakan startForegroundService untuk Android modern
+            startForegroundService(intent)
         } else {
             startService(intent)
         }
-        finish() 
+        finish()
     }
 }
