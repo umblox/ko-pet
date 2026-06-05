@@ -40,7 +40,6 @@ import kotlinx.coroutines.withContext
 import java.util.Locale
 import java.util.concurrent.Executors
 
-// Implementasikan SavedStateRegistryOwner secara langsung pada kelas Service
 class PetService : LifecycleService(), TextToSpeech.OnInitListener, SavedStateRegistryOwner {
 
     private lateinit var windowManager: WindowManager
@@ -53,7 +52,6 @@ class PetService : LifecycleService(), TextToSpeech.OnInitListener, SavedStateRe
     private val NOTIFICATION_ID = 1
     private val CHANNEL_ID = "pet_service_channel"
 
-    // Komponen delegasi untuk memenuhi kebutuhan SavedStateRegistry bagi Jetpack Compose
     private val savedStateRegistryController = SavedStateRegistryController.create(this)
     override val savedStateRegistry: SavedStateRegistry
         get() = savedStateRegistryController.savedStateRegistry
@@ -64,15 +62,17 @@ class PetService : LifecycleService(), TextToSpeech.OnInitListener, SavedStateRe
     }
 
     override fun onCreate() {
+        // PERBAIKAN 1: Biar super.onCreate() jalan duluan untuk inisialisasi internal LifecycleService
+        super.onCreate()
+        
+        // PERBAIKAN 2: Jalankan registrasi state TEPAT setelah super.onCreate() agar tidak bentrok
+        savedStateRegistryController.performRestore(Bundle())
+        
         createNotificationChannel()
         startForeground(NOTIFICATION_ID, createNotification())
-        
-        // Menginisialisasi state controller sebelum super.onCreate atau pemanggilan UI Compose
-        savedStateRegistryController.performRestore(Bundle())
-        super.onCreate()
 
         lifecycleScope.launch(Dispatchers.IO) {
-            database = AppDatabase.getDatabase(this@PetService)
+            database = AppDatabase.getDatabase(applicationContext)
             withContext(Dispatchers.Main) {
                 try {
                     initOverlayWindow()
@@ -110,7 +110,6 @@ class PetService : LifecycleService(), TextToSpeech.OnInitListener, SavedStateRe
     private fun initOverlayWindow() {
         windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
         composeView = ComposeView(this).apply {
-            // Menyuntikkan implementasi lifecycle dan saved state pemilik yang valid ke hirarki visual Compose
             setViewTreeLifecycleOwner(this@PetService)
             setViewTreeSavedStateRegistryOwner(this@PetService)
             
@@ -135,7 +134,7 @@ class PetService : LifecycleService(), TextToSpeech.OnInitListener, SavedStateRe
     }
 
     private fun initTTS() {
-        tts = TextToSpeech(this, this)
+        tts = TextToSpeech(applicationContext, this)
     }
 
     override fun onInit(status: Int) {
@@ -145,7 +144,8 @@ class PetService : LifecycleService(), TextToSpeech.OnInitListener, SavedStateRe
     }
 
     private fun startCameraAnalysis() {
-        val cameraProviderFuture = ProcessCameraProvider.getInstance(this)
+        // PERBAIKAN 3: Menggunakan 'applicationContext' menggantikan 'this' untuk stabilisasi engine CameraX
+        val cameraProviderFuture = ProcessCameraProvider.getInstance(applicationContext)
         cameraProviderFuture.addListener({
             try {
                 val cameraProvider = cameraProviderFuture.get()
@@ -175,7 +175,7 @@ class PetService : LifecycleService(), TextToSpeech.OnInitListener, SavedStateRe
             } catch (e: Exception) {
                 e.printStackTrace()
             }
-        }, ContextCompat.getMainExecutor(this))
+        }, ContextCompat.getMainExecutor(applicationContext))
     }
 
     private fun onFaceAnalyzed(isFaceDetected: Boolean, faceEmbeddingDetected: FloatArray?) {
