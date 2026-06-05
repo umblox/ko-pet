@@ -113,7 +113,6 @@ class PetService : LifecycleService(), TextToSpeech.OnInitListener {
                     val currentTime = System.currentTimeMillis()
                     if (currentTime - lastGreetingTime > 20000) {
                         lastGreetingTime = currentTime
-                        // Simulasikan pembacaan array embedding (128-float vector) dari modul AI
                         val mockEmbedding = FloatArray(128) { 0.5f }
                         onFaceAnalyzed(true, mockEmbedding)
                     }
