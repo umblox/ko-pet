@@ -26,8 +26,10 @@ import com.aipet.app.ui.PetEmotion
 import com.aipet.app.ui.PetViewModel
 import com.aipet.app.ui.PetWidgetView
 import com.aipet.app.utils.FaceAnalyzer
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.util.Locale
 import java.util.concurrent.Executors
 
@@ -39,6 +41,9 @@ class PetService : LifecycleService(), TextToSpeech.OnInitListener {
     private lateinit var database: AppDatabase
     private val viewModel = PetViewModel()
     private var lastGreetingTime = 0L
+    
+    private val NOTIFICATION_ID = 1
+    private val CHANNEL_ID = "pet_service_channel"
 
     override fun onBind(intent: Intent): IBinder? {
         super.onBind(intent)
@@ -46,25 +51,51 @@ class PetService : LifecycleService(), TextToSpeech.OnInitListener {
     }
 
     override fun onCreate() {
+        // 1. Jalankan Foreground secepat mungkin agar OS tidak membunuh service (Batasan Android 12+)
+        createNotificationChannel()
+        startForeground(NOTIFICATION_ID, createNotification())
+        
         super.onCreate()
-        database = AppDatabase.getDatabase(this)
-        startForegroundService()
-        initOverlayWindow()
-        initTTS()
-        startCameraAnalysis()
+
+        // 2. Inisialisasi Database secara asinkron di Background Thread (IO)
+        lifecycleScope.launch(Dispatchers.IO) {
+            database = AppDatabase.getDatabase(this@PetService)
+            
+            // 3. Pindahkan inisialisasi UI dan Kamera kembali ke Main Thread setelah DB siap
+            withContext(Dispatchers.Main) {
+                try {
+                    initOverlayWindow()
+                    initTTS()
+                    startCameraAnalysis()
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
+        }
     }
 
-    private fun startForegroundService() {
-        val channelId = "pet_service_channel"
+    private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(channelId, "AI Pet Running", NotificationManager.IMPORTANCE_LOW)
-            (getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).createNotificationChannel(channel)
+            val serviceChannel = NotificationChannel(
+                CHANNEL_ID,
+                "AI Pet Service Channel",
+                NotificationManager.IMPORTANCE_LOW
+            ).apply {
+                description = "Channel untuk mendeteksi interaksi AI Pet"
+            }
+            val manager = getSystemService(NotificationManager::class.java)
+            manager?.createNotificationChannel(serviceChannel)
         }
-        val notification: Notification = NotificationCompat.Builder(this, channelId)
+    }
+
+    private fun createNotification(): Notification {
+        return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("AI Pet Aktif")
             .setContentText("Pet sedang mengawasi meja kerjamu...")
+            .setSmallIcon(android.R.drawable.ic_menu_compass) // Gunakan ikon sistem yang pasti ada
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setOngoing(true)
             .build()
-        startForeground(1, notification)
     }
 
     private fun initOverlayWindow() {
@@ -103,24 +134,24 @@ class PetService : LifecycleService(), TextToSpeech.OnInitListener {
     private fun startCameraAnalysis() {
         val cameraProviderFuture = ProcessCameraProvider.getInstance(this)
         cameraProviderFuture.addListener({
-            val cameraProvider = cameraProviderFuture.get()
-            val imageAnalysis = ImageAnalysis.Builder()
-                .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-                .build()
-
-            imageAnalysis.setAnalyzer(Executors.newSingleThreadExecutor(), FaceAnalyzer { faceDetected ->
-                if (faceDetected) {
-                    val currentTime = System.currentTimeMillis()
-                    if (currentTime - lastGreetingTime > 20000) {
-                        lastGreetingTime = currentTime
-                        val mockEmbedding = FloatArray(128) { 0.5f }
-                        onFaceAnalyzed(true, mockEmbedding)
-                    }
-                }
-            })
-
-            val cameraSelector = CameraSelector.DEFAULT_FRONT_CAMERA
             try {
+                val cameraProvider = cameraProviderFuture.get()
+                val imageAnalysis = ImageAnalysis.Builder()
+                    .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                    .build()
+
+                imageAnalysis.setAnalyzer(Executors.newSingleThreadExecutor(), FaceAnalyzer { faceDetected ->
+                    if (faceDetected) {
+                        val currentTime = System.currentTimeMillis()
+                        if (currentTime - lastGreetingTime > 20000) {
+                            lastGreetingTime = currentTime
+                            val mockEmbedding = FloatArray(128) { 0.5f }
+                            onFaceAnalyzed(true, mockEmbedding)
+                        }
+                    }
+                })
+
+                val cameraSelector = CameraSelector.DEFAULT_FRONT_CAMERA
                 cameraProvider.unbindAll()
                 cameraProvider.bindToLifecycle(this, cameraSelector, imageAnalysis)
             } catch (e: Exception) {
@@ -136,7 +167,10 @@ class PetService : LifecycleService(), TextToSpeech.OnInitListener {
             viewModel.setEmotion(PetEmotion.THINKING)
             delay(1500)
 
-            val savedOwner = database.memoryDao().getOwner()
+            // Pindahkan operasi disk/DB ke Dispatchers.IO
+            val savedOwner = withContext(Dispatchers.IO) {
+                database.memoryDao().getOwner()
+            }
 
             if (savedOwner != null) {
                 val isMatch = compareEmbeddings(faceEmbeddingDetected, savedOwner.faceEmbedding)
@@ -158,7 +192,10 @@ class PetService : LifecycleService(), TextToSpeech.OnInitListener {
                 viewModel.setEmotion(PetEmotion.LOADING)
                 
                 val mockEmbeddingString = faceEmbeddingDetected.joinToString(",")
-                database.memoryDao().saveOwner(UserMemory(name = "Master Ikrom", faceEmbedding = mockEmbeddingString))
+                
+                withContext(Dispatchers.IO) {
+                    database.memoryDao().saveOwner(UserMemory(name = "Master Ikrom", faceEmbedding = mockEmbeddingString))
+                }
                 
                 viewModel.setEmotion(PetEmotion.WINK)
                 speakOut("Selesai! Mulai detik ini, kamu adalah Master Ikrom, pemilik sah saya!")
@@ -179,15 +216,19 @@ class PetService : LifecycleService(), TextToSpeech.OnInitListener {
     }
 
     private fun speakOut(text: String) {
-        tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, null)
+        if (::tts.isInitialized) {
+            tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, null)
+        }
     }
 
     override fun onDestroy() {
-        super.onDestroy()
-        if (::composeView.isInitialized) windowManager.removeView(composeView)
+        if (::composeView.isInitialized) {
+            try { windowManager.removeView(composeView) } catch (e: Exception) { e.printStackTrace() }
+        }
         if (::tts.isInitialized) {
             tts.stop()
             tts.shutdown()
         }
+        super.onDestroy()
     }
 }
