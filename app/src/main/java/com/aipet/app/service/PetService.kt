@@ -13,6 +13,7 @@ import android.view.Gravity
 import android.view.WindowManager
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
+import androidx.camera.core.UseCaseGroup
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.platform.ComposeView
@@ -51,17 +52,12 @@ class PetService : LifecycleService(), TextToSpeech.OnInitListener {
     }
 
     override fun onCreate() {
-        // 1. Jalankan Foreground secepat mungkin agar OS tidak membunuh service (Batasan Android 12+)
         createNotificationChannel()
         startForeground(NOTIFICATION_ID, createNotification())
-        
         super.onCreate()
 
-        // 2. Inisialisasi Database secara asinkron di Background Thread (IO)
         lifecycleScope.launch(Dispatchers.IO) {
             database = AppDatabase.getDatabase(this@PetService)
-            
-            // 3. Pindahkan inisialisasi UI dan Kamera kembali ke Main Thread setelah DB siap
             withContext(Dispatchers.Main) {
                 try {
                     initOverlayWindow()
@@ -80,9 +76,7 @@ class PetService : LifecycleService(), TextToSpeech.OnInitListener {
                 CHANNEL_ID,
                 "AI Pet Service Channel",
                 NotificationManager.IMPORTANCE_LOW
-            ).apply {
-                description = "Channel untuk mendeteksi interaksi AI Pet"
-            }
+            )
             val manager = getSystemService(NotificationManager::class.java)
             manager?.createNotificationChannel(serviceChannel)
         }
@@ -92,7 +86,7 @@ class PetService : LifecycleService(), TextToSpeech.OnInitListener {
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("AI Pet Aktif")
             .setContentText("Pet sedang mengawasi meja kerjamu...")
-            .setSmallIcon(android.R.drawable.ic_menu_compass) // Gunakan ikon sistem yang pasti ada
+            .setSmallIcon(android.R.drawable.ic_menu_compass)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setOngoing(true)
             .build()
@@ -111,7 +105,7 @@ class PetService : LifecycleService(), TextToSpeech.OnInitListener {
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.WRAP_CONTENT,
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY else WindowManager.LayoutParams.TYPE_PHONE,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.END
@@ -153,7 +147,13 @@ class PetService : LifecycleService(), TextToSpeech.OnInitListener {
 
                 val cameraSelector = CameraSelector.DEFAULT_FRONT_CAMERA
                 cameraProvider.unbindAll()
-                cameraProvider.bindToLifecycle(this, cameraSelector, imageAnalysis)
+                
+                // PERBAIKAN: Ikat analisis kamera ke lifecycle Service secara terisolasi menggunakan UseCaseGroup
+                val useCaseGroup = UseCaseGroup.Builder()
+                    .addUseCase(imageAnalysis)
+                    .build()
+                cameraProvider.bindToLifecycle(this, cameraSelector, useCaseGroup)
+                
             } catch (e: Exception) {
                 e.printStackTrace()
             }
@@ -167,7 +167,6 @@ class PetService : LifecycleService(), TextToSpeech.OnInitListener {
             viewModel.setEmotion(PetEmotion.THINKING)
             delay(1500)
 
-            // Pindahkan operasi disk/DB ke Dispatchers.IO
             val savedOwner = withContext(Dispatchers.IO) {
                 database.memoryDao().getOwner()
             }
