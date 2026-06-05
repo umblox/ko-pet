@@ -7,6 +7,7 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.PixelFormat
 import android.os.Build
+import android.os.Bundle
 import android.os.IBinder
 import android.speech.tts.TextToSpeech
 import android.view.Gravity
@@ -22,6 +23,9 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleService
 import androidx.lifecycle.setViewTreeLifecycleOwner
 import androidx.lifecycle.lifecycleScope
+import androidx.savedstate.SavedStateRegistry
+import androidx.savedstate.SavedStateRegistryController
+import androidx.savedstate.SavedStateRegistryOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import com.aipet.app.data.AppDatabase
 import com.aipet.app.data.UserMemory
@@ -36,7 +40,8 @@ import kotlinx.coroutines.withContext
 import java.util.Locale
 import java.util.concurrent.Executors
 
-class PetService : LifecycleService(), TextToSpeech.OnInitListener {
+// Implementasikan SavedStateRegistryOwner secara langsung pada kelas Service
+class PetService : LifecycleService(), TextToSpeech.OnInitListener, SavedStateRegistryOwner {
 
     private lateinit var windowManager: WindowManager
     private lateinit var composeView: ComposeView
@@ -48,6 +53,11 @@ class PetService : LifecycleService(), TextToSpeech.OnInitListener {
     private val NOTIFICATION_ID = 1
     private val CHANNEL_ID = "pet_service_channel"
 
+    // Komponen delegasi untuk memenuhi kebutuhan SavedStateRegistry bagi Jetpack Compose
+    private val savedStateRegistryController = SavedStateRegistryController.create(this)
+    override val savedStateRegistry: SavedStateRegistry
+        get() = savedStateRegistryController.savedStateRegistry
+
     override fun onBind(intent: Intent): IBinder? {
         super.onBind(intent)
         return null
@@ -56,6 +66,9 @@ class PetService : LifecycleService(), TextToSpeech.OnInitListener {
     override fun onCreate() {
         createNotificationChannel()
         startForeground(NOTIFICATION_ID, createNotification())
+        
+        // Menginisialisasi state controller sebelum super.onCreate atau pemanggilan UI Compose
+        savedStateRegistryController.performRestore(Bundle())
         super.onCreate()
 
         lifecycleScope.launch(Dispatchers.IO) {
@@ -97,7 +110,7 @@ class PetService : LifecycleService(), TextToSpeech.OnInitListener {
     private fun initOverlayWindow() {
         windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
         composeView = ComposeView(this).apply {
-            // SOLUSI CRASH COMPOSE DI SERVICE: Suntik Owners dummy agar Tree Renderer tidak panik
+            // Menyuntikkan implementasi lifecycle dan saved state pemilik yang valid ke hirarki visual Compose
             setViewTreeLifecycleOwner(this@PetService)
             setViewTreeSavedStateRegistryOwner(this@PetService)
             
