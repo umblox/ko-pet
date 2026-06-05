@@ -50,9 +50,8 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun startPetService() {
-        val intent = Intent(this, PetService::class.companion.javaClass)
+        val intent = Intent(this, PetService::class.java)
         startService(intent)
-        finish() // Tutup activity agar aplikasi berjalan murni di latar belakang
+        finish()
     }
 }
-
