@@ -18,13 +18,16 @@ jobs:
       with:
         java-version: '17'
         distribution: 'temurin'
-        cache: gradle
 
-    - name: Grant execute permission for gradlew
-      run: chmod +x gradlew
+    # Langkah Baru: Menggunakan Gradle bawaan Ubuntu Runner (Bypass Wrapper)
+    - name: Setup Gradle
+      uses: gradle/actions/setup-gradle@v3
+      with:
+        gradle-version: current # Menggunakan versi Gradle stabil terbaru yang ada di server
 
-    - name: Build with Gradle
-      run: ./gradlew assembleDebug
+    # Menggunakan perintah 'gradle' langsung, bukan './gradlew'
+    - name: Build with Pre-installed Gradle
+      run: gradle assembleDebug
 
     - name: Upload APK
       uses: actions/upload-artifact@v4
