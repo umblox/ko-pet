@@ -20,7 +20,9 @@ import androidx.compose.ui.platform.ComposeView
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleService
+import androidx.lifecycle.setViewTreeLifecycleOwner
 import androidx.lifecycle.lifecycleScope
+import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import com.aipet.app.data.AppDatabase
 import com.aipet.app.data.UserMemory
 import com.aipet.app.ui.PetEmotion
@@ -95,6 +97,10 @@ class PetService : LifecycleService(), TextToSpeech.OnInitListener {
     private fun initOverlayWindow() {
         windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
         composeView = ComposeView(this).apply {
+            // SOLUSI CRASH COMPOSE DI SERVICE: Suntik Owners dummy agar Tree Renderer tidak panik
+            setViewTreeLifecycleOwner(this@PetService)
+            setViewTreeSavedStateRegistryOwner(this@PetService)
+            
             setContent {
                 val state = viewModel.emotion.collectAsState()
                 PetWidgetView(emotion = state.value)
@@ -148,7 +154,6 @@ class PetService : LifecycleService(), TextToSpeech.OnInitListener {
                 val cameraSelector = CameraSelector.DEFAULT_FRONT_CAMERA
                 cameraProvider.unbindAll()
                 
-                // PERBAIKAN: Ikat analisis kamera ke lifecycle Service secara terisolasi menggunakan UseCaseGroup
                 val useCaseGroup = UseCaseGroup.Builder()
                     .addUseCase(imageAnalysis)
                     .build()
