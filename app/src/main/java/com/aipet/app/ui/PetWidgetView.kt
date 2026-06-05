@@ -1,9 +1,9 @@
 package com.aipet.app.ui
 
-import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.GenericShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -16,7 +16,7 @@ fun PetWidgetView(emotion: PetEmotion) {
     Row(
         modifier = Modifier
             .size(180.dp, 100.dp)
-            .background(Color(0xFF0D0D0D), shape = androidx.compose.foundation.shape.RoundedCornerShape(24.dp)),
+            .background(Color(0xFF0D0D0D), shape = RoundedCornerShape(24.dp)),
         horizontalArrangement = Arrangement.SpaceEvenly,
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -29,17 +29,16 @@ fun PetWidgetView(emotion: PetEmotion) {
 fun EyeComponent(emotion: PetEmotion, isLeftEye: Boolean) {
     val neonColor = Color(0xFF00FFCC)
     
-    // Bentuk geometri mata berdasarkan emosi menggunakan kliping bentuk kustom
     val eyeShape = remember(emotion) {
         GenericShape { size, _ ->
             when (emotion) {
-                PetEmotion.HAPPY -> { // Lengkungan senyum ke atas ^
+                PetEmotion.HAPPY -> {
                     moveTo(0f, size.height)
                     cubicTo(0f, 0f, size.width, 0f, size.width, size.height)
                     lineTo(size.width * 0.8f, size.height)
-                    cubicTo(size.width * 0.8f, size.height * 0.3f, size.width * 0.2f, size.height * 0.3f, size.value * 0.2f, size.height)
+                    cubicTo(size.width * 0.8f, size.height * 0.3f, size.width * 0.2f, size.height * 0.3f, size.width * 0.2f, size.height)
                 }
-                PetEmotion.ANGRY -> { // Sudut miring tajam ke dalam /> <\
+                PetEmotion.ANGRY -> {
                     if (isLeftEye) {
                         moveTo(0f, 0f)
                         lineTo(size.width, size.height * 0.5f)
@@ -52,27 +51,26 @@ fun EyeComponent(emotion: PetEmotion, isLeftEye: Boolean) {
                         lineTo(0f, size.height)
                     }
                 }
-                PetEmotion.SAD -> { // Melengkung sayu ke bawah \ /
+                PetEmotion.SAD -> {
                     moveTo(0f, size.height * 0.3f)
                     lineTo(size.width, size.height * 0.8f)
                     lineTo(size.width, size.height)
                     lineTo(0f, size.height)
                 }
-                PetEmotion.BORED -> { // Garis horizontal datar
+                PetEmotion.BORED -> {
                     addRect(androidx.compose.ui.geometry.Rect(0f, size.height * 0.4f, size.width, size.height * 0.6f))
                 }
-                else -> addOval(androidx.compose.ui.geometry.Rect(0f, 0f, size.width, size.height)) // Bulat default
+                else -> addOval(androidx.compose.ui.geometry.Rect(0f, 0f, size.width, size.height))
             }
         }
     }
 
-    // Mengatur skala tinggi/lebar dinamis sesuai variasi emosi
     val heightModifier = when (emotion) {
         PetEmotion.IDLE -> Modifier.height(45.dp)
-        PetEmotion.SURPRISED -> Modifier.height(65.dp).width(35.dp) // Membesar kaget
-        PetEmotion.THINKING -> Modifier.height(20.dp) // Menyipit menyelidiki
-        PetEmotion.SLEEPY -> Modifier.height(10.dp) // Sangat redup kuyu
-        PetEmotion.WINK -> if (isLeftEye) Modifier.height(5.dp) else Modifier.height(45.dp) // Kedip satu
+        PetEmotion.SURPRISED -> Modifier.height(65.dp).width(35.dp)
+        PetEmotion.THINKING -> Modifier.height(20.dp)
+        PetEmotion.SLEEPY -> Modifier.height(10.dp)
+        PetEmotion.WINK -> if (isLeftEye) Modifier.height(5.dp) else Modifier.height(45.dp)
         else -> Modifier.height(40.dp)
     }
 
