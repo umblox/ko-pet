@@ -11,7 +11,7 @@ import androidx.room.Query
 data class UserMemory(
     @PrimaryKey val id: String = "owner",
     val name: String,
-    val faceEmbedding: String // Array Float yang di-serialize menjadi String JSON
+    val faceEmbedding: String
 )
 
 @Dao
@@ -19,6 +19,6 @@ interface MemoryDao {
     @Query("SELECT * FROM user_memory WHERE id = 'owner' LIMIT 1")
     suspend fun getOwner(): UserMemory?
 
-    @Insert(onConflictStrategy = OnConflictStrategy.REPLACE)
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun saveOwner(userMemory: UserMemory)
 }
