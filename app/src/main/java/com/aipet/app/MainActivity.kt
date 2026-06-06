@@ -95,7 +95,6 @@ class MainActivity : ComponentActivity() {
             } else {
                 startService(intent)
             }
-            // MODIFIKASI: Jangan panggil finish() di sini untuk memberi waktu OS memvalidasi Service jendela latar depan
         } catch (e: Exception) {
             e.printStackTrace()
         }
