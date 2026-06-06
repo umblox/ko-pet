@@ -5,6 +5,7 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
+import android.content.SharedPreferences
 import android.graphics.PixelFormat
 import android.os.Build
 import android.os.Bundle
@@ -28,8 +29,6 @@ import androidx.savedstate.SavedStateRegistry
 import androidx.savedstate.SavedStateRegistryController
 import androidx.savedstate.SavedStateRegistryOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
-import com.aipet.app.data.AppDatabase
-import com.aipet.app.data.UserMemory
 import com.aipet.app.ui.PetEmotion
 import com.aipet.app.ui.PetViewModel
 import com.aipet.app.ui.PetWidgetView
@@ -46,7 +45,7 @@ class PetService : LifecycleService(), TextToSpeech.OnInitListener, SavedStateRe
     private var windowManager: WindowManager? = null
     private var composeView: ComposeView? = null
     private lateinit var tts: TextToSpeech
-    private lateinit var database: AppDatabase
+    private lateinit var sharedPreferences: SharedPreferences
     private val viewModel = PetViewModel()
     private var lastGreetingTime = 0L
     
@@ -68,20 +67,16 @@ class PetService : LifecycleService(), TextToSpeech.OnInitListener, SavedStateRe
         createNotificationChannel()
         startForeground(NOTIFICATION_ID, createNotification())
 
-        // PERBAIKAN UTAMA: Amankan proses inisialisasi dengan Coroutine Delay
-        // Ini memberi waktu bagi OS untuk mematikan MainActivity dan menyiapkan Window Token Latar Belakang
-        lifecycleScope.launch(Dispatchers.IO) {
-            database = AppDatabase.getDatabase(applicationContext)
-            delay(500) // Jeda aman 500ms agar daur hidup onCreate() Service selesai sepenuhnya
-            
-            withContext(Dispatchers.Main) {
-                try {
-                    initOverlayWindow()
-                    initTTS()
-                    startCameraAnalysis()
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                }
+        // Menggunakan SharedPreferences yang instan dan bebas crash thread
+        sharedPreferences = applicationContext.getSharedPreferences("pet_memory", Context.MODE_PRIVATE)
+
+        lifecycleScope.launch(Dispatchers.Main) {
+            try {
+                initOverlayWindow()
+                initTTS()
+                startCameraAnalysis()
+            } catch (e: Exception) {
+                e.printStackTrace()
             }
         }
     }
@@ -197,15 +192,15 @@ class PetService : LifecycleService(), TextToSpeech.OnInitListener, SavedStateRe
             viewModel.setEmotion(PetEmotion.THINKING)
             delay(1500)
 
-            val savedOwner = withContext(Dispatchers.IO) {
-                database.memoryDao().getOwner()
-            }
+            // Membaca memori dari SharedPreferences tanpa resiko blocking thread
+            val savedName = sharedPreferences.getString("owner_name", null)
+            val savedEmbedding = sharedPreferences.getString("owner_embedding", null)
 
-            if (savedOwner != null) {
-                val isMatch = compareEmbeddings(faceEmbeddingDetected, savedOwner.faceEmbedding)
+            if (savedName != null && savedEmbedding != null) {
+                val isMatch = compareEmbeddings(faceEmbeddingDetected, savedEmbedding)
                 if (isMatch) {
                     viewModel.setEmotion(PetEmotion.HAPPY)
-                    speakOut("Halo master ${savedOwner.name}! Senang melihatmu kembali bekerja.")
+                    speakOut("Halo master $savedName! Senang melihatmu kembali bekerja.")
                     delay(3000)
                     viewModel.setEmotion(PetEmotion.IDLE)
                 } else {
@@ -222,8 +217,11 @@ class PetService : LifecycleService(), TextToSpeech.OnInitListener, SavedStateRe
                 
                 val mockEmbeddingString = faceEmbeddingDetected.joinToString(",")
                 
-                withContext(Dispatchers.IO) {
-                    database.memoryDao().saveOwner(UserMemory(name = "Master Ikrom", faceEmbedding = mockEmbeddingString))
+                // Menyimpan ke SharedPreferences secara instan
+                sharedPreferences.edit().apply {
+                    putString("owner_name", "Master Ikrom")
+                    putString("owner_embedding", mockEmbeddingString)
+                    apply()
                 }
                 
                 viewModel.setEmotion(PetEmotion.WINK)
