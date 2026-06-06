@@ -5,15 +5,22 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
-import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Text
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.aipet.app.service.PetService
 
@@ -28,23 +35,57 @@ class MainActivity : ComponentActivity() {
         }
     }.toTypedArray()
 
+    // Menggunakan State Compose untuk mengontrol UI secara dinamis
+    private var isOverlayReady by mutableStateOf(false)
+
     private val permissionsLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
-        val allGranted = permissions.entries.all { it.value }
-        if (allGranted) {
+        if (permissions.entries.all { it.value }) {
             checkOverlayPermission()
         } else {
-            Toast.makeText(this, "AI Pet membutuhkan semua izin untuk berfungsi.", Toast.LENGTH_LONG).show()
             finish()
         }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        
         setContent {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text("Memeriksa konfigurasi sensor AI Pet...")
+            var statusText by remember { mutableStateOf("Memeriksa konfigurasi sensor AI Pet...") }
+            
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color(0xFF0D0D0D)),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterAlignment,
+                    verticalArrangement = Arrangement.Center,
+                    modifier = Modifier.padding(24.dp)
+                ) {
+                    Text(
+                        text = statusText,
+                        color = Color.White,
+                        fontSize = 16.sp,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.padding(bottom = 24.dp)
+                    )
+
+                    // Jika izin overlay sudah diberikan, munculkan tombol aktivasi aman
+                    if (isOverlayReady) {
+                        statusText = "Semua izin beres! Klik tombol di bawah untuk menghidupkan Pet."
+                        Button(
+                            onClick = { startPetService() },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00FFCC)),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.fillMaxWidth().height(50.dp)
+                        ) {
+                            Text("Aktifkan AI Pet", color = Color.Black, fontSize = 16.sp)
+                        }
+                    }
+                }
             }
         }
         checkAndRequestPermissions()
@@ -54,7 +95,6 @@ class MainActivity : ComponentActivity() {
         val hasAllPermissions = requiredPermissions.all {
             ContextCompat.checkSelfPermission(this, it) == android.content.pm.PackageManager.PERMISSION_GRANTED
         }
-
         if (hasAllPermissions) {
             checkOverlayPermission()
         } else {
@@ -64,7 +104,7 @@ class MainActivity : ComponentActivity() {
 
     private fun checkOverlayPermission() {
         if (!Settings.canDrawOverlays(this)) {
-            Toast.makeText(this, "Aktifkan izin 'Tampilkan di atas aplikasi lain'", Toast.LENGTH_LONG).show()
+            isOverlayReady = false
             val intent = Intent(
                 Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
                 Uri.parse("package:$packageName")
@@ -73,7 +113,7 @@ class MainActivity : ComponentActivity() {
             }
             startActivity(intent)
         } else {
-            startPetService()
+            isOverlayReady = true
         }
     }
 
@@ -82,8 +122,9 @@ class MainActivity : ComponentActivity() {
         val hasAllPermissions = requiredPermissions.all {
             ContextCompat.checkSelfPermission(this, it) == android.content.pm.PackageManager.PERMISSION_GRANTED
         }
+        // Jangan langsung panggil Service di sini, cukup ubah State UI
         if (hasAllPermissions && Settings.canDrawOverlays(this)) {
-            startPetService()
+            isOverlayReady = true
         }
     }
 
@@ -95,6 +136,7 @@ class MainActivity : ComponentActivity() {
             } else {
                 startService(intent)
             }
+            finish() // Menutup activity dengan aman karena dieksekusi via interaksi user (omni-fokus)
         } catch (e: Exception) {
             e.printStackTrace()
         }
