@@ -26,16 +26,17 @@ jobs:
     - name: Grant execute permission for gradlew
       run: chmod +x gradlew
 
-    # PERBAIKAN: Generate debug.keystore secara dinamis menggunakan Java Keytool bawaan JDK
+    # Membuat debug.keystore statis agar aplikasi bisa langsung di-update tanpa uninstal
     - name: Generate Static Debug Keystore
       run: |
         mkdir -p app
         keytool -genkey -v -keystore app/debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
 
+    # PERBAIKAN UTAMA: Mengoper rahasia token dari GitHub Secrets ke parameter kompilasi Gradle (-P)
     - name: Build with Gradle
       env:
         GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
-      run: gradle assembleDebug
+      run: gradle assembleDebug -PGROQ_API_KEY="${{ secrets.GROQ_API_KEY }}"
 
     - name: Upload APK Artifact
       uses: actions/upload-artifact@v4
