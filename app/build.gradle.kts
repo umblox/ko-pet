@@ -8,7 +8,6 @@ android {
     namespace = "com.aipet.app"
     compileSdk = 34
 
-    // CONFIG: Mengunci identitas biner APK menggunakan sertifikat debug statis hasil injeksi CI
     signingConfigs {
         getByName("debug") {
             storeFile = file("debug.keystore")
@@ -25,7 +24,9 @@ android {
         versionCode = 1
         versionName = "1.0"
         
-        buildConfigField("String", "GROQ_API_KEY", "\"${System.getenv("GROQ_API_KEY") ?: ""}\"")
+        // PERBAIKAN: Membaca properti proyek dari GitHub runner secara langsung
+        val groqKey = project.findProperty("GROQ_API_KEY") as? String ?: ""
+        buildConfigField("String", "GROQ_API_KEY", "\"$groqKey\"")
     }
 
     buildFeatures {
@@ -35,7 +36,6 @@ android {
 
     buildTypes {
         getByName("debug") {
-            // Memaksa sistem biner menggunakan tanda tangan yang sama agar bisa ditimpa langsung saat update
             signingConfig = signingConfigs.getByName("debug")
         }
     }
@@ -75,7 +75,7 @@ dependencies {
     implementation("org.tensorflow:tensorflow-lite:2.14.0")
     implementation("org.tensorflow:tensorflow-lite-support:0.4.4")
 
-    // Jaringan Jarak Jauh Ktor (Mesin Akses Internet)
+    // Ktor
     val ktorVersion = "2.3.11"
     implementation("io.ktor:ktor-client-core:$ktorVersion")
     implementation("io.ktor:ktor-client-okhttp:$ktorVersion")
