@@ -9,7 +9,6 @@
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CAMERA" />
-    <!-- TAMBAHAN: Izin untuk menjalankan mic di Foreground Service -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
 
     <application
@@ -28,7 +27,6 @@
             </intent-filter>
         </activity>
 
-        <!-- PERBAIKAN: Satukan tipe kamera dan mikrofon menggunakan tanda garis tegak "|" -->
         <service
             android:name="com.aipet.app.service.PetService"
             android:enabled="true"
