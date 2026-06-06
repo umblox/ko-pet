@@ -3,8 +3,6 @@ name: Android CI
 on:
   push:
     branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
 
 jobs:
   build:
@@ -12,26 +10,19 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
-
+    
     - name: set up JDK 17
       uses: actions/setup-java@v4
       with:
         java-version: '17'
         distribution: 'temurin'
+        cache: gradle
 
-    # Langkah Baru: Menggunakan Gradle bawaan Ubuntu Runner (Bypass Wrapper)
-    - name: Setup Gradle
-      uses: gradle/actions/setup-gradle@v3
-      with:
-        gradle-version: current # Menggunakan versi Gradle stabil terbaru yang ada di server
+    - name: Grant execute permission for gradlew
+      run: chmod +x gradlew
 
-    # Menggunakan perintah 'gradle' langsung, bukan './gradlew'
-    - name: Build with Pre-installed Gradle
-      run: gradle assembleDebug
-
-    - name: Upload APK
-      uses: actions/upload-artifact@v4
-      with:
-        name: app-debug
-        path: app/build/outputs/apk/debug/app-debug.apk
-        
+    - name: Build with Gradle
+      env:
+        GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }} # Menyuntikkan Secret ke Gradle secara aman
+      run: ./gradlew assembleDebug
+      
