@@ -35,7 +35,6 @@ class MainActivity : ComponentActivity() {
         }
     }.toTypedArray()
 
-    // Menggunakan State Compose untuk mengontrol UI secara dinamis
     private var isOverlayReady by mutableStateOf(false)
 
     private val permissionsLauncher = registerForActivityResult(
@@ -61,7 +60,7 @@ class MainActivity : ComponentActivity() {
                 contentAlignment = Alignment.Center
             ) {
                 Column(
-                    horizontalAlignment = Alignment.CenterAlignment,
+                    horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center,
                     modifier = Modifier.padding(24.dp)
                 ) {
@@ -73,7 +72,6 @@ class MainActivity : ComponentActivity() {
                         modifier = Modifier.padding(bottom = 24.dp)
                     )
 
-                    // Jika izin overlay sudah diberikan, munculkan tombol aktivasi aman
                     if (isOverlayReady) {
                         statusText = "Semua izin beres! Klik tombol di bawah untuk menghidupkan Pet."
                         Button(
@@ -122,7 +120,6 @@ class MainActivity : ComponentActivity() {
         val hasAllPermissions = requiredPermissions.all {
             ContextCompat.checkSelfPermission(this, it) == android.content.pm.PackageManager.PERMISSION_GRANTED
         }
-        // Jangan langsung panggil Service di sini, cukup ubah State UI
         if (hasAllPermissions && Settings.canDrawOverlays(this)) {
             isOverlayReady = true
         }
@@ -136,7 +133,7 @@ class MainActivity : ComponentActivity() {
             } else {
                 startService(intent)
             }
-            finish() // Menutup activity dengan aman karena dieksekusi via interaksi user (omni-fokus)
+            finish()
         } catch (e: Exception) {
             e.printStackTrace()
         }
