@@ -21,8 +21,16 @@ jobs:
     - name: Grant execute permission for gradlew
       run: chmod +x gradlew
 
-    - name: Build with Gradle
+    # SATU ALUR: Kompilasi biner dengan membawa Secret Key & Pengaturan RAM Proyek
+    - name: Build with Gradle Wrapper
       env:
-        GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }} # Menyuntikkan Secret ke Gradle secara aman
+        GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
       run: ./gradlew assembleDebug
-      
+
+    # PROSES AKHIR: Ekstrak hasil biner menjadi file APK siap unduh
+    - name: Upload APK Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: AI-Pet-Buddy-Groq
+        path: app/build/outputs/apk/debug/app-debug.apk
+        
