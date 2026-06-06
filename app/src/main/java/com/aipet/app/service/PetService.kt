@@ -64,8 +64,6 @@ class PetService : LifecycleService(), TextToSpeech.OnInitListener, SavedStateRe
     private var speechRecognizer: SpeechRecognizer? = null
     private val viewModel = PetViewModel()
     private var lastGreetingTime = 0L
-    
-    // PENGAMAN UTAMA: Flag untuk memblokir mic saat pet sedang berbicara/berpikir
     private var isBuddySpeaking = false 
     
     private val NOTIFICATION_ID = 1
@@ -75,7 +73,6 @@ class PetService : LifecycleService(), TextToSpeech.OnInitListener, SavedStateRe
         install(ContentNegotiation) {
             json(Json { 
                 ignoreUnknownKeys = true
-                prettyPrint = false
                 isLenient = true
             })
         }
@@ -180,7 +177,6 @@ class PetService : LifecycleService(), TextToSpeech.OnInitListener, SavedStateRe
                     override fun onBufferReceived(buffer: ByteArray?) {}
                     override fun onEndOfSpeech() {}
                     override fun onError(error: Int) { 
-                        // Hanya restart listening jika Buddy tidak sedang berbicara
                         if (!isBuddySpeaking) startListening() 
                     }
                     override fun onResults(results: Bundle?) {
@@ -213,8 +209,8 @@ class PetService : LifecycleService(), TextToSpeech.OnInitListener, SavedStateRe
     }
 
     private fun processSpokenText(text: String) {
-        if (isBuddySpeaking) return
-        val lowerText = text.lowercase()
+        if (isBuddySpeaking || text.isBlank()) return
+        val lowerText = text.lowercase().trim()
         
         lifecycleScope.launch {
             if (lowerText == "buddy" || lowerText == "halo pet") {
@@ -238,7 +234,7 @@ class PetService : LifecycleService(), TextToSpeech.OnInitListener, SavedStateRe
                 return@launch
             }
 
-            // Eksekusi Panggilan AI Groq Llama3
+            // Panggil API Cloud
             stopListeningTemporarily()
             viewModel.setEmotion(PetEmotion.THINKING)
             
@@ -247,7 +243,6 @@ class PetService : LifecycleService(), TextToSpeech.OnInitListener, SavedStateRe
             viewModel.setEmotion(PetEmotion.HAPPY)
             speakOut(responseAi)
             
-            // Jeda proporsional menjaga durasi membaca TTS selesai
             delay(if (responseAi.length > 50) 6500L else 4500L)
             viewModel.setEmotion(PetEmotion.IDLE)
             resumeListeningAgain()
@@ -274,25 +269,32 @@ class PetService : LifecycleService(), TextToSpeech.OnInitListener, SavedStateRe
                 "Jawab pertanyaan Master Ikrom dengan sangat singkat, maksimal dua kalimat."
 
         try {
-            val contentBody = buildJsonObject {
-                put("model", "llama3-8b-8192")
-                putJsonArray("messages") {
-                    addJsonObject {
-                        put("role", "system")
-                        put("content", systemPrompt)
+            // PERBAIKAN VITAL: Amankan karakter ilegal (tanda kutip/garis baru) dari mic agar JSON tidak korup
+            val escapedPrompt = prompt.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", " ")
+            val escapedSystem = systemPrompt.replace("\\", "\\\\").replace("\"", "\\\"")
+
+            // REFAKTOR TOTAL: Kirim payload sebagai Plain TEXT JSON String murni demi akurasi 100%
+            val jsonPayload = """
+                {
+                  "model": "llama3-8b-8192",
+                  "messages": [
+                    {
+                      "role": "system",
+                      "content": "$escapedSystem"
+                    },
+                    {
+                      "role": "user",
+                      "content": "$escapedPrompt"
                     }
-                    addJsonObject {
-                        put("role", "user")
-                        put("content", prompt)
-                    }
+                  ],
+                  "temperature": 0.7
                 }
-                put("temperature", 0.7)
-            }
+            """.trimIndent()
 
             val response = jsonClient.post(url) {
                 contentType(ContentType.Application.Json)
                 header("Authorization", "Bearer $apiKey")
-                setBody(contentBody)
+                setBody(jsonPayload) // Mengirimkan plain string JSON murni
             }
 
             if (response.status.value == 200) {
@@ -320,7 +322,6 @@ class PetService : LifecycleService(), TextToSpeech.OnInitListener, SavedStateRe
                     .build()
 
                 imageAnalysis.setAnalyzer(Executors.newSingleThreadExecutor(), FaceAnalyzer { faceDetected ->
-                    // Deteksi kamera dilarang memotong interaksi obrolan yang sedang berjalan
                     if (faceDetected && !isBuddySpeaking) {
                         val currentTime = System.currentTimeMillis()
                         if (currentTime - lastGreetingTime > 45000) {
@@ -404,13 +405,12 @@ class PetService : LifecycleService(), TextToSpeech.OnInitListener, SavedStateRe
     }
 
     override fun onDestroy() {
-        // PERBAIKAN 3: Cancel paksa subsistem engine audio untuk cegah memory-leak
         try {
             speechRecognizer?.cancel()
             speechRecognizer?.destroy()
         } catch (e: Exception) { e.printStackTrace() }
         
-        jsonClient.close() // Tutup soket Ktor secara bersih
+        jsonClient.close()
         
         composeView?.let {
             try { windowManager?.removeView(it) } catch (e: Exception) { e.printStackTrace() }
