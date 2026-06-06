@@ -22,11 +22,17 @@ jobs:
       run: chmod +x gradlew
 
     # SATU ALUR: Kompilasi biner dengan membawa Secret Key & Pengaturan RAM Proyek
-    - name: Build with Gradle Wrapper
+    - name: Setup Gradle
+      uses: gradle/actions/setup-gradle@v3
+      with:
+        gradle-version: current # Menggunakan engine Gradle global versi stabil terbaru
+
+    # Ganti './gradlew assembleDebug' menjadi perintah 'gradle' murni
+    - name: Build with Gradle
       env:
         GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
-      run: ./gradlew assembleDebug
-
+      run: gradle assembleDebug
+      
     # PROSES AKHIR: Ekstrak hasil biner menjadi file APK siap unduh
     - name: Upload APK Artifact
       uses: actions/upload-artifact@v4
