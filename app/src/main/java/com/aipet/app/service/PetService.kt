@@ -11,6 +11,7 @@ import android.os.Bundle
 import android.os.IBinder
 import android.speech.tts.TextToSpeech
 import android.view.Gravity
+import android.view.View
 import android.view.WindowManager
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
@@ -62,12 +63,8 @@ class PetService : LifecycleService(), TextToSpeech.OnInitListener, SavedStateRe
     }
 
     override fun onCreate() {
-        // PERBAIKAN 1: Biar super.onCreate() jalan duluan untuk inisialisasi internal LifecycleService
         super.onCreate()
-        
-        // PERBAIKAN 2: Jalankan registrasi state TEPAT setelah super.onCreate() agar tidak bentrok
         savedStateRegistryController.performRestore(Bundle())
-        
         createNotificationChannel()
         startForeground(NOTIFICATION_ID, createNotification())
 
@@ -109,14 +106,11 @@ class PetService : LifecycleService(), TextToSpeech.OnInitListener, SavedStateRe
 
     private fun initOverlayWindow() {
         windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
+        
+        // Inisialisasi basis View murni tanpa langsung memanggil setContent
         composeView = ComposeView(this).apply {
             setViewTreeLifecycleOwner(this@PetService)
             setViewTreeSavedStateRegistryOwner(this@PetService)
-            
-            setContent {
-                val state = viewModel.emotion.collectAsState()
-                PetWidgetView(emotion = state.value)
-            }
         }
 
         val params = WindowManager.LayoutParams(
@@ -130,6 +124,20 @@ class PetService : LifecycleService(), TextToSpeech.OnInitListener, SavedStateRe
             x = 20
             y = 200
         }
+
+        // PERBAIKAN UTAMA: Tambahkan listener untuk mendeteksi kapan View benar-benar menempel di layar OS
+        composeView.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
+            override fun onViewAttachedToWindow(v: View) {
+                // Eksekusi perwujudan UI Compose HANYA setelah jendela terikat fisik di layar
+                composeView.setContent {
+                    val state = viewModel.emotion.collectAsState()
+                    PetWidgetView(emotion = state.value)
+                }
+            }
+            override fun onViewDetachedFromWindow(v: View) {}
+        })
+
+        // Masukkan View ke WindowManager terlebih dahulu agar proses pengikatan berjalan
         windowManager.addView(composeView, params)
     }
 
@@ -144,7 +152,6 @@ class PetService : LifecycleService(), TextToSpeech.OnInitListener, SavedStateRe
     }
 
     private fun startCameraAnalysis() {
-        // PERBAIKAN 3: Menggunakan 'applicationContext' menggantikan 'this' untuk stabilisasi engine CameraX
         val cameraProviderFuture = ProcessCameraProvider.getInstance(applicationContext)
         cameraProviderFuture.addListener({
             try {
