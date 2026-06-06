@@ -252,57 +252,47 @@ class PetService : LifecycleService(), TextToSpeech.OnInitListener, SavedStateRe
         startListening()
     }
 
-    private suspend fun fetchGroqResponse(prompt: String): String = withContext(Dispatchers.IO) {
-        val apiKey = BuildConfig.GROQ_API_KEY
-        if (apiKey.isBlank()) return@withContext "Waduh master, API Key Groq belum disuntikkan ke dalam sistem."
+private suspend fun fetchGroqResponse(prompt: String): String = withContext(Dispatchers.IO) {
+    val apiKey = BuildConfig.GROQ_API_KEY
+    if (apiKey.isBlank()) return@withContext "Waduh master, API Key Groq belum disuntikkan."
 
-        val url = "https://api.groq.com/openai/v1/chat/completions"
-        val systemPrompt = "Kamu adalah robot AI kecil imut peliharaan meja bernama Buddy. " +
-                "Berbicaralah dengan bahasa Indonesia yang santai, manja, dan lucu. " +
-                "Jawab pertanyaan Master Ikrom dengan sangat singkat, maksimal dua kalimat."
+    val url = "https://api.groq.com/openai/v1/chat/completions"
+    
+    // Bersihkan teks secara radikal dari karakter yang bisa merusak String JSON
+    val cleanPrompt = prompt.replace("\"", "'").replace("\n", " ").trim()
 
-        try {
-            // PERBAIKAN UTAMA 2: Susun objek biner murni menggunakan struktur map tipe data Kotlinx resmi.
-            // Pustaka ini otomatis melakukan escaping karakter aneh secara internal dengan standar industri RFC 8259.
-            val contentBody = buildJsonObject {
-                put("model", "llama3-8b-8192")
-                putJsonArray("messages") {
-                    addJsonObject {
-                        put("role", "system")
-                        put("content", systemPrompt)
-                    }
-                    addJsonObject {
-                        put("role", "user")
-                        put("content", prompt)
-                    }
-                }
-                put("temperature", 0.7)
-            }
+    // PAYLOAD PALING MURNI: Tanpa suhu (temperature), tanpa library serializer.
+    val rawJsonPayload = "{\"model\":\"llama3-8b-8192\",\"messages\":[{\"role\":\"system\",\"content\":\"Kamu robot AI imut bernama Buddy. Jawab sangat singkat maksimal 2 kalimat.\"},{\"role\":\"user\",\"content\":\"$cleanPrompt\"}]}"
 
-            // PERBAIKAN UTAMA 3: Paksa konversi objek ke String murni menggunakan Json.encodeToString()
-            // Langkah ini menjamin tidak ada modifikasi header biner ilegal dari Ktor OkHttp saat pengiriman data.
-            val finalJsonPayloadString = Json.encodeToString(contentBody)
-
-            val response = jsonClient.post(url) {
-                contentType(ContentType.Application.Json)
-                header("Authorization", "Bearer $apiKey")
-                setBody(finalJsonPayloadString)
-            }
-
-            if (response.status.value == 200) {
-                val rawJsonString = response.bodyAsText()
-                val jsonResponse = Json.parseToJsonElement(rawJsonString).jsonObject
-                val choices = jsonResponse["choices"]?.jsonArray
-                val message = choices?.getOrNull(0)?.jsonObject?.get("message")?.jsonObject
-                message?.get("content")?.jsonPrimitive?.content ?: "Buddy bingung mau jawab apa, master."
-            } else {
-                "Otak awan Groq Buddy memberikan kode kesalahan ${response.status.value}."
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
-            "Buddy gagal terhubung ke internet. Pastikan jaringan master lancar."
+    try {
+        val response = jsonClient.post(url) {
+            contentType(ContentType.Application.Json)
+            header("Authorization", "Bearer $apiKey")
+            setBody(rawJsonPayload)
         }
+
+        val responseBody = response.bodyAsText()
+        if (response.status.value == 200) {
+            // Ambil teks jawaban secara manual tanpa parsing object biner
+            val contentStartIndex = responseBody.indexOf("\"content\":\"")
+            if (contentStartIndex != -1) {
+                val start = contentStartIndex + 11
+                val end = responseBody.indexOf("\"", start)
+                if (end != -1) {
+                    return@withContext responseBody.substring(start, end)
+                        .replace("\\n", " ")
+                        .replace("\\\"", "\"")
+                }
+            }
+            "Buddy bingung mau jawab apa, master."
+        } else {
+            "Otak Groq Buddy eror kode ${response.status.value}."
+        }
+    } catch (e: Exception) {
+        e.printStackTrace()
+        "Buddy gagal terhubung ke internet."
     }
+}
 
     private fun startCameraAnalysis() {
         val cameraProviderFuture = ProcessCameraProvider.getInstance(applicationContext)
