@@ -181,7 +181,8 @@ class PetService : LifecycleService(), TextToSpeech.OnInitListener, SavedStateRe
                         startListening()
                     }
                     override fun onPartialResults(partialResults: Bundle?) {}
-                    override fun考えて(eventType: Int, params: Bundle?) {}
+                    // PERBAIKAN: Mengembalikan fungsi onEvent asli Android dan menghapus karakter teks asing
+                    override fun onEvent(eventType: Int, params: Bundle?) {}
                 })
             }
             startListening()
