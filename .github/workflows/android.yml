@@ -26,11 +26,11 @@ jobs:
     - name: Grant execute permission for gradlew
       run: chmod +x gradlew
 
-    # OTOMATISASI HP: Menyalin debug.keystore bawaan server Ubuntu ke folder proyek sebelum build
-    - name: Inject Static Debug Keystore
+    # PERBAIKAN: Generate debug.keystore secara dinamis menggunakan Java Keytool bawaan JDK
+    - name: Generate Static Debug Keystore
       run: |
         mkdir -p app
-        cp ~/.android/debug.keystore app/debug.keystore
+        keytool -genkey -v -keystore app/debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
 
     - name: Build with Gradle
       env:
@@ -42,4 +42,3 @@ jobs:
       with:
         name: AI-Pet-Buddy-Groq
         path: app/build/outputs/apk/debug/app-debug.apk
-        
