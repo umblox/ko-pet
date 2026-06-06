@@ -38,12 +38,12 @@ import com.aipet.app.ui.PetViewModel
 import com.aipet.app.ui.PetWidgetView
 import com.aipet.app.utils.FaceAnalyzer
 import io.ktor.client.HttpClient
-import io.ktor.client.call.body
 import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.client.request.header
+import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.contentType
 import io.ktor.serialization.kotlinx.json.json
@@ -65,12 +65,19 @@ class PetService : LifecycleService(), TextToSpeech.OnInitListener, SavedStateRe
     private val viewModel = PetViewModel()
     private var lastGreetingTime = 0L
     
+    // PENGAMAN UTAMA: Flag untuk memblokir mic saat pet sedang berbicara/berpikir
+    private var isBuddySpeaking = false 
+    
     private val NOTIFICATION_ID = 1
     private val CHANNEL_ID = "pet_service_channel"
 
     private val jsonClient = HttpClient(OkHttp) {
         install(ContentNegotiation) {
-            json(Json { ignoreUnknownKeys = true })
+            json(Json { 
+                ignoreUnknownKeys = true
+                prettyPrint = false
+                isLenient = true
+            })
         }
     }
 
@@ -112,8 +119,8 @@ class PetService : LifecycleService(), TextToSpeech.OnInitListener, SavedStateRe
 
     private fun createNotification(): Notification {
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("AI Pet Aktif")
-            .setContentText("Buddy siap mendengarkan instruksi Master...")
+            .setContentTitle("AI Pet Buddy")
+            .setContentText("Buddy aktif dan siap berinteraksi...")
             .setSmallIcon(android.R.drawable.ic_menu_compass)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setOngoing(true)
@@ -172,16 +179,19 @@ class PetService : LifecycleService(), TextToSpeech.OnInitListener, SavedStateRe
                     override fun onRmsChanged(rmsdB: Float) {}
                     override fun onBufferReceived(buffer: ByteArray?) {}
                     override fun onEndOfSpeech() {}
-                    override fun onError(error: Int) { startListening() }
+                    override fun onError(error: Int) { 
+                        // Hanya restart listening jika Buddy tidak sedang berbicara
+                        if (!isBuddySpeaking) startListening() 
+                    }
                     override fun onResults(results: Bundle?) {
                         val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-                        if (!matches.isNullOrEmpty()) {
+                        if (!matches.isNullOrEmpty() && !isBuddySpeaking) {
                             processSpokenText(matches[0])
+                        } else {
+                            if (!isBuddySpeaking) startListening()
                         }
-                        startListening()
                     }
                     override fun onPartialResults(partialResults: Bundle?) {}
-                    // PERBAIKAN: Mengembalikan fungsi onEvent asli Android dan menghapus karakter teks asing
                     override fun onEvent(eventType: Int, params: Bundle?) {}
                 })
             }
@@ -190,95 +200,115 @@ class PetService : LifecycleService(), TextToSpeech.OnInitListener, SavedStateRe
     }
 
     private fun startListening() {
-        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE, "id-ID")
+        if (isBuddySpeaking) return
+        try {
+            val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE, "id-ID")
+            }
+            speechRecognizer?.startListening(intent)
+        } catch (e: Exception) {
+            e.printStackTrace()
         }
-        speechRecognizer?.startListening(intent)
     }
 
     private fun processSpokenText(text: String) {
+        if (isBuddySpeaking) return
         val lowerText = text.lowercase()
         
         lifecycleScope.launch {
-            // Perintah Dasar Lokal 1: Panggilan Nama
             if (lowerText == "buddy" || lowerText == "halo pet") {
+                stopListeningTemporarily()
                 viewModel.setEmotion(PetEmotion.HAPPY)
                 speakOut("Iya Master Ikrom? Ada yang bisa Buddy bantu?")
                 delay(3000)
                 viewModel.setEmotion(PetEmotion.IDLE)
+                resumeListeningAgain()
                 return@launch
             }
 
-            // Perintah Dasar Lokal 2: Tanya Identitas
             if (lowerText.contains("siapa saya") || lowerText.contains("namaku siapa")) {
+                stopListeningTemporarily()
                 viewModel.setEmotion(PetEmotion.WINK)
                 val savedName = sharedPreferences.getString("owner_name", "Master Ikrom")
                 speakOut("Kamu adalah $savedName, pemilik sah saya!")
                 delay(3000)
                 viewModel.setEmotion(PetEmotion.IDLE)
+                resumeListeningAgain()
                 return@launch
             }
 
-            // Pemicu Fleksibel: Mengirim suara langsung ke Groq Cloud AI jika tidak masuk filter lokal
+            // Eksekusi Panggilan AI Groq Llama3
+            stopListeningTemporarily()
             viewModel.setEmotion(PetEmotion.THINKING)
+            
             val responseAi = fetchGroqResponse(text)
             
             viewModel.setEmotion(PetEmotion.HAPPY)
             speakOut(responseAi)
             
-            delay(if (responseAi.length > 50) 6000L else 4000L)
+            // Jeda proporsional menjaga durasi membaca TTS selesai
+            delay(if (responseAi.length > 50) 6500L else 4500L)
             viewModel.setEmotion(PetEmotion.IDLE)
+            resumeListeningAgain()
         }
     }
 
-private suspend fun fetchGroqResponse(prompt: String): String = withContext(Dispatchers.IO) {
-    val apiKey = BuildConfig.GROQ_API_KEY
-    if (apiKey.isBlank()) return@withContext "Waduh master, API Key Groq belum disuntikkan ke dalam sistem."
+    private fun stopListeningTemporarily() {
+        isBuddySpeaking = true
+        try { speechRecognizer?.cancel() } catch (e: Exception) { e.printStackTrace() }
+    }
 
-    val url = "https://api.groq.com/openai/v1/chat/completions"
-    val systemPrompt = "Kamu adalah robot AI kecil imut peliharaan meja bernama Buddy. " +
-            "Berbicaralah dengan bahasa Indonesia yang santai, manja, dan lucu. " +
-            "Jawab pertanyaan Master Ikrom dengan sangat singkat (maksimal dua kalimat)."
+    private fun resumeListeningAgain() {
+        isBuddySpeaking = false
+        startListening()
+    }
 
-    try {
-        // PERBAIKAN: Gunakan representasi String JSON mentah agar parsing biner 100% akurat
-        val jsonPayload = """
-            {
-              "model": "llama3-8b-8192",
-              "messages": [
-                {
-                  "role": "system",
-                  "content": "${systemPrompt.replace("\"", "\\\"")}"
-                },
-                {
-                  "role": "user",
-                  "content": "${prompt.replace("\"", "\\\"")}"
+    private suspend fun fetchGroqResponse(prompt: String): String = withContext(Dispatchers.IO) {
+        val apiKey = BuildConfig.GROQ_API_KEY
+        if (apiKey.isBlank()) return@withContext "Waduh master, API Key Groq belum disuntikkan ke dalam sistem."
+
+        val url = "https://api.groq.com/openai/v1/chat/completions"
+        val systemPrompt = "Kamu adalah robot AI kecil imut peliharaan meja bernama Buddy. " +
+                "Berbicaralah dengan bahasa Indonesia yang santai, manja, dan lucu. " +
+                "Jawab pertanyaan Master Ikrom dengan sangat singkat, maksimal dua kalimat."
+
+        try {
+            val contentBody = buildJsonObject {
+                put("model", "llama3-8b-8192")
+                putJsonArray("messages") {
+                    addJsonObject {
+                        put("role", "system")
+                        put("content", systemPrompt)
+                    }
+                    addJsonObject {
+                        put("role", "user")
+                        put("content", prompt)
+                    }
                 }
-              ],
-              "temperature": 0.7
+                put("temperature", 0.7)
             }
-        """.trimIndent()
 
-        val response: io.ktor.client.statement.HttpResponse = jsonClient.post(url) {
-            contentType(ContentType.Application.Json)
-            header("Authorization", "Bearer $apiKey")
-            setBody(Json.parseToJsonElement(jsonPayload)) // Konversi aman ke JsonElement murni
-        }
+            val response = jsonClient.post(url) {
+                contentType(ContentType.Application.Json)
+                header("Authorization", "Bearer $apiKey")
+                setBody(contentBody)
+            }
 
-        if (response.status.value == 200) {
-            val responseBody = response.body<JsonObject>()
-            val choices = responseBody["choices"]?.jsonArray
-            val message = choices?.getOrNull(0)?.jsonObject?.get("message")?.jsonObject
-            message?.get("content")?.jsonPrimitive?.content ?: "Buddy bingung mau jawab apa, master."
-        } else {
-            "Otak awan Groq Buddy memberikan kode kesalahan ${response.status.value}."
+            if (response.status.value == 200) {
+                val rawJsonString = response.bodyAsText()
+                val jsonResponse = Json.parseToJsonElement(rawJsonString).jsonObject
+                val choices = jsonResponse["choices"]?.jsonArray
+                val message = choices?.getOrNull(0)?.jsonObject?.get("message")?.jsonObject
+                message?.get("content")?.jsonPrimitive?.content ?: "Buddy bingung mau jawab apa, master."
+            } else {
+                "Otak awan Groq Buddy memberikan kode kesalahan ${response.status.value}."
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            "Buddy gagal terhubung ke internet. Pastikan jaringan master lancar."
         }
-    } catch (e: Exception) {
-        e.printStackTrace()
-        "Buddy gagal terhubung ke internet. Pastikan jaringan master lancar."
     }
-}
 
     private fun startCameraAnalysis() {
         val cameraProviderFuture = ProcessCameraProvider.getInstance(applicationContext)
@@ -290,9 +320,10 @@ private suspend fun fetchGroqResponse(prompt: String): String = withContext(Disp
                     .build()
 
                 imageAnalysis.setAnalyzer(Executors.newSingleThreadExecutor(), FaceAnalyzer { faceDetected ->
-                    if (faceDetected) {
+                    // Deteksi kamera dilarang memotong interaksi obrolan yang sedang berjalan
+                    if (faceDetected && !isBuddySpeaking) {
                         val currentTime = System.currentTimeMillis()
-                        if (currentTime - lastGreetingTime > 45000) { // Cooldown deteksi kamera dinaikkan agar mic bekerja optimal
+                        if (currentTime - lastGreetingTime > 45000) {
                             lastGreetingTime = currentTime
                             val mockEmbedding = FloatArray(128) { 0.5f }
                             onFaceAnalyzed(true, mockEmbedding)
@@ -311,9 +342,10 @@ private suspend fun fetchGroqResponse(prompt: String): String = withContext(Disp
     }
 
     private fun onFaceAnalyzed(isFaceDetected: Boolean, faceEmbeddingDetected: FloatArray?) {
-        if (!isFaceDetected || faceEmbeddingDetected == null) return
+        if (!isFaceDetected || faceEmbeddingDetected == null || isBuddySpeaking) return
 
         lifecycleScope.launch {
+            stopListeningTemporarily()
             viewModel.setEmotion(PetEmotion.THINKING)
             delay(1500)
 
@@ -351,6 +383,7 @@ private suspend fun fetchGroqResponse(prompt: String): String = withContext(Disp
                 delay(3000)
                 viewModel.setEmotion(PetEmotion.IDLE)
             }
+            resumeListeningAgain()
         }
     }
 
@@ -371,7 +404,14 @@ private suspend fun fetchGroqResponse(prompt: String): String = withContext(Disp
     }
 
     override fun onDestroy() {
-        speechRecognizer?.destroy()
+        // PERBAIKAN 3: Cancel paksa subsistem engine audio untuk cegah memory-leak
+        try {
+            speechRecognizer?.cancel()
+            speechRecognizer?.destroy()
+        } catch (e: Exception) { e.printStackTrace() }
+        
+        jsonClient.close() // Tutup soket Ktor secara bersih
+        
         composeView?.let {
             try { windowManager?.removeView(it) } catch (e: Exception) { e.printStackTrace() }
         }
