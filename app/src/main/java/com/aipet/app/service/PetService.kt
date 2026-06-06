@@ -43,8 +43,8 @@ import java.util.concurrent.Executors
 
 class PetService : LifecycleService(), TextToSpeech.OnInitListener, SavedStateRegistryOwner {
 
-    private lateinit var windowManager: WindowManager
-    private lateinit var composeView: ComposeView
+    private var windowManager: WindowManager? = null
+    private var composeView: ComposeView? = null
     private lateinit var tts: TextToSpeech
     private lateinit var database: AppDatabase
     private val viewModel = PetViewModel()
@@ -68,8 +68,12 @@ class PetService : LifecycleService(), TextToSpeech.OnInitListener, SavedStateRe
         createNotificationChannel()
         startForeground(NOTIFICATION_ID, createNotification())
 
+        // PERBAIKAN UTAMA: Amankan proses inisialisasi dengan Coroutine Delay
+        // Ini memberi waktu bagi OS untuk mematikan MainActivity dan menyiapkan Window Token Latar Belakang
         lifecycleScope.launch(Dispatchers.IO) {
             database = AppDatabase.getDatabase(applicationContext)
+            delay(500) // Jeda aman 500ms agar daur hidup onCreate() Service selesai sepenuhnya
+            
             withContext(Dispatchers.Main) {
                 try {
                     initOverlayWindow()
@@ -105,40 +109,41 @@ class PetService : LifecycleService(), TextToSpeech.OnInitListener, SavedStateRe
     }
 
     private fun initOverlayWindow() {
-        windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
-        
-        // Inisialisasi basis View murni tanpa langsung memanggil setContent
-        composeView = ComposeView(this).apply {
-            setViewTreeLifecycleOwner(this@PetService)
-            setViewTreeSavedStateRegistryOwner(this@PetService)
-        }
-
-        val params = WindowManager.LayoutParams(
-            WindowManager.LayoutParams.WRAP_CONTENT,
-            WindowManager.LayoutParams.WRAP_CONTENT,
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY else WindowManager.LayoutParams.TYPE_PHONE,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
-            PixelFormat.TRANSLUCENT
-        ).apply {
-            gravity = Gravity.TOP or Gravity.END
-            x = 20
-            y = 200
-        }
-
-        // PERBAIKAN UTAMA: Tambahkan listener untuk mendeteksi kapan View benar-benar menempel di layar OS
-        composeView.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
-            override fun onViewAttachedToWindow(v: View) {
-                // Eksekusi perwujudan UI Compose HANYA setelah jendela terikat fisik di layar
-                composeView.setContent {
-                    val state = viewModel.emotion.collectAsState()
-                    PetWidgetView(emotion = state.value)
-                }
+        try {
+            windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
+            
+            val localComposeView = ComposeView(this).apply {
+                setViewTreeLifecycleOwner(this@PetService)
+                setViewTreeSavedStateRegistryOwner(this@PetService)
             }
-            override fun onViewDetachedFromWindow(v: View) {}
-        })
+            this.composeView = localComposeView
 
-        // Masukkan View ke WindowManager terlebih dahulu agar proses pengikatan berjalan
-        windowManager.addView(composeView, params)
+            val params = WindowManager.LayoutParams(
+                WindowManager.LayoutParams.WRAP_CONTENT,
+                WindowManager.LayoutParams.WRAP_CONTENT,
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY else WindowManager.LayoutParams.TYPE_PHONE,
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+                PixelFormat.TRANSLUCENT
+            ).apply {
+                gravity = Gravity.TOP or Gravity.END
+                x = 20
+                y = 200
+            }
+
+            localComposeView.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
+                override fun onViewAttachedToWindow(v: View) {
+                    localComposeView.setContent {
+                        val state = viewModel.emotion.collectAsState()
+                        PetWidgetView(emotion = state.value)
+                    }
+                }
+                override fun onViewDetachedFromWindow(v: View) {}
+            })
+
+            windowManager?.addView(localComposeView, params)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
     }
 
     private fun initTTS() {
@@ -246,8 +251,8 @@ class PetService : LifecycleService(), TextToSpeech.OnInitListener, SavedStateRe
     }
 
     override fun onDestroy() {
-        if (::composeView.isInitialized) {
-            try { windowManager.removeView(composeView) } catch (e: Exception) { e.printStackTrace() }
+        composeView?.let {
+            try { windowManager?.removeView(it) } catch (e: Exception) { e.printStackTrace() }
         }
         if (::tts.isInitialized) {
             tts.stop()
