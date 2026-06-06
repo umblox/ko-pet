@@ -39,18 +39,17 @@ import com.aipet.app.ui.PetWidgetView
 import com.aipet.app.utils.FaceAnalyzer
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.okhttp.OkHttp
-import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.client.request.header
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.contentType
-import io.ktor.serialization.kotlinx.json.json
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.*
 import java.util.Locale
 import java.util.concurrent.Executors
@@ -69,14 +68,9 @@ class PetService : LifecycleService(), TextToSpeech.OnInitListener, SavedStateRe
     private val NOTIFICATION_ID = 1
     private val CHANNEL_ID = "pet_service_channel"
 
-    private val jsonClient = HttpClient(OkHttp) {
-        install(ContentNegotiation) {
-            json(Json { 
-                ignoreUnknownKeys = true
-                isLenient = true
-            })
-        }
-    }
+    // PERBAIKAN 1: Buat engine HTTP murni tanpa plugin ContentNegotiation 
+    // agar Ktor tidak mengacaukan konversi objek JSON biner di background service
+    private val jsonClient = HttpClient(OkHttp)
 
     private val savedStateRegistryController = SavedStateRegistryController.create(this)
     override val savedStateRegistry: SavedStateRegistry
@@ -234,7 +228,6 @@ class PetService : LifecycleService(), TextToSpeech.OnInitListener, SavedStateRe
                 return@launch
             }
 
-            // Panggil API Cloud
             stopListeningTemporarily()
             viewModel.setEmotion(PetEmotion.THINKING)
             
@@ -269,32 +262,31 @@ class PetService : LifecycleService(), TextToSpeech.OnInitListener, SavedStateRe
                 "Jawab pertanyaan Master Ikrom dengan sangat singkat, maksimal dua kalimat."
 
         try {
-            // PERBAIKAN VITAL: Amankan karakter ilegal (tanda kutip/garis baru) dari mic agar JSON tidak korup
-            val escapedPrompt = prompt.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", " ")
-            val escapedSystem = systemPrompt.replace("\\", "\\\\").replace("\"", "\\\"")
-
-            // REFAKTOR TOTAL: Kirim payload sebagai Plain TEXT JSON String murni demi akurasi 100%
-            val jsonPayload = """
-                {
-                  "model": "llama3-8b-8192",
-                  "messages": [
-                    {
-                      "role": "system",
-                      "content": "$escapedSystem"
-                    },
-                    {
-                      "role": "user",
-                      "content": "$escapedPrompt"
+            // PERBAIKAN UTAMA 2: Susun objek biner murni menggunakan struktur map tipe data Kotlinx resmi.
+            // Pustaka ini otomatis melakukan escaping karakter aneh secara internal dengan standar industri RFC 8259.
+            val contentBody = buildJsonObject {
+                put("model", "llama3-8b-8192")
+                putJsonArray("messages") {
+                    addJsonObject {
+                        put("role", "system")
+                        put("content", systemPrompt)
                     }
-                  ],
-                  "temperature": 0.7
+                    addJsonObject {
+                        put("role", "user")
+                        put("content", prompt)
+                    }
                 }
-            """.trimIndent()
+                put("temperature", 0.7)
+            }
+
+            // PERBAIKAN UTAMA 3: Paksa konversi objek ke String murni menggunakan Json.encodeToString()
+            // Langkah ini menjamin tidak ada modifikasi header biner ilegal dari Ktor OkHttp saat pengiriman data.
+            val finalJsonPayloadString = Json.encodeToString(contentBody)
 
             val response = jsonClient.post(url) {
                 contentType(ContentType.Application.Json)
                 header("Authorization", "Bearer $apiKey")
-                setBody(jsonPayload) // Mengirimkan plain string JSON murni
+                setBody(finalJsonPayloadString)
             }
 
             if (response.status.value == 200) {
