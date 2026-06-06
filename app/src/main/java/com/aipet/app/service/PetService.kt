@@ -68,8 +68,7 @@ class PetService : LifecycleService(), TextToSpeech.OnInitListener, SavedStateRe
     private val NOTIFICATION_ID = 1
     private val CHANNEL_ID = "pet_service_channel"
 
-    // PERBAIKAN 1: Buat engine HTTP murni tanpa plugin ContentNegotiation 
-    // agar Ktor tidak mengacaukan konversi objek JSON biner di background service
+    // Gunakan HTTP murni tanpa plugin ContentNegotiation global
     private val jsonClient = HttpClient(OkHttp)
 
     private val savedStateRegistryController = SavedStateRegistryController.create(this)
@@ -252,47 +251,56 @@ class PetService : LifecycleService(), TextToSpeech.OnInitListener, SavedStateRe
         startListening()
     }
 
-private suspend fun fetchGroqResponse(prompt: String): String = withContext(Dispatchers.IO) {
-    val apiKey = BuildConfig.GROQ_API_KEY
-    if (apiKey.isBlank()) return@withContext "Waduh master, API Key Groq belum disuntikkan."
+    private suspend fun fetchGroqResponse(prompt: String): String = withContext(Dispatchers.IO) {
+        val apiKey = BuildConfig.GROQ_API_KEY
+        if (apiKey.isBlank()) return@withContext "Waduh master, API Key Groq belum disuntikkan."
 
-    val url = "https://api.groq.com/openai/v1/chat/completions"
-    
-    // Bersihkan teks secara radikal dari karakter yang bisa merusak String JSON
-    val cleanPrompt = prompt.replace("\"", "'").replace("\n", " ").trim()
+        val url = "https://api.groq.com/openai/v1/chat/completions"
+        val systemPrompt = "Kamu adalah robot AI imut bernama Buddy. Jawab singkat maksimal dua kalimat."
 
-    // PAYLOAD PALING MURNI: Tanpa suhu (temperature), tanpa library serializer.
-    val rawJsonPayload = "{\"model\":\"llama3-8b-8192\",\"messages\":[{\"role\":\"system\",\"content\":\"Kamu robot AI imut bernama Buddy. Jawab sangat singkat maksimal 2 kalimat.\"},{\"role\":\"user\",\"content\":\"$cleanPrompt\"}]}"
-
-    try {
-        val response = jsonClient.post(url) {
-            contentType(ContentType.Application.Json)
-            header("Authorization", "Bearer $apiKey")
-            setBody(rawJsonPayload)
-        }
-
-        val responseBody = response.bodyAsText()
-        if (response.status.value == 200) {
-            // Ambil teks jawaban secara manual tanpa parsing object biner
-            val contentStartIndex = responseBody.indexOf("\"content\":\"")
-            if (contentStartIndex != -1) {
-                val start = contentStartIndex + 11
-                val end = responseBody.indexOf("\"", start)
-                if (end != -1) {
-                    return@withContext responseBody.substring(start, end)
-                        .replace("\\n", " ")
-                        .replace("\\\"", "\"")
+        try {
+            // FIX MUTAKHIR: Gunakan map biner builder resmi. 
+            // Pustaka ini otomatis menangani standardisasi spasi, escape, dan encoding UTF-8 mic secara industri.
+            val contentBody = buildJsonObject {
+                put("model", "llama3-8b-8192")
+                putJsonArray("messages") {
+                    addJsonObject {
+                        put("role", "system")
+                        put("content", systemPrompt)
+                    }
+                    addJsonObject {
+                        put("role", "user")
+                        put("content", prompt.trim()) 
+                    }
                 }
             }
-            "Buddy bingung mau jawab apa, master."
-        } else {
-            "Otak Groq Buddy eror kode ${response.status.value}."
+
+            // Kunci enkripsi json ke bentuk String murni berbaris tunggal yang valid bagi server Groq
+            val finalPayload = Json.encodeToString(contentBody)
+
+            val response = jsonClient.post(url) {
+                contentType(ContentType.Application.Json)
+                header("Authorization", "Bearer $apiKey")
+                setBody(finalPayload)
+            }
+
+            val responseBody = response.bodyAsText()
+            if (response.status.value == 200) {
+                val jsonResponse = Json.parseToJsonElement(responseBody).jsonObject
+                val choices = jsonResponse["choices"]?.jsonArray
+                val message = choices?.getOrNull(0)?.jsonObject?.get("message")?.jsonObject
+                val contentText = message?.get("content")?.jsonPrimitive?.content
+                
+                contentText ?: "Buddy bingung mau jawab apa, master."
+            } else {
+                android.util.Log.e("BUDDY_ERROR", "Groq Error Body: $responseBody")
+                "Otak Groq Buddy eror kode ${response.status.value}."
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            "Buddy gagal terhubung ke internet."
         }
-    } catch (e: Exception) {
-        e.printStackTrace()
-        "Buddy gagal terhubung ke internet."
     }
-}
 
     private fun startCameraAnalysis() {
         val cameraProviderFuture = ProcessCameraProvider.getInstance(applicationContext)
