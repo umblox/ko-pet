@@ -8,6 +8,16 @@ android {
     namespace = "com.aipet.app"
     compileSdk = 34
 
+    // CONFIG: Mengunci identitas biner APK menggunakan sertifikat debug statis hasil injeksi CI
+    signingConfigs {
+        getByName("debug") {
+            storeFile = file("debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
+
     defaultConfig {
         applicationId = "com.aipet.app"
         minSdk = 26
@@ -15,14 +25,21 @@ android {
         versionCode = 1
         versionName = "1.0"
         
-        // Membaca Secret dari GitHub Environment untuk dimasukkan ke kode biner APK
         buildConfigField("String", "GROQ_API_KEY", "\"${System.getenv("GROQ_API_KEY") ?: ""}\"")
     }
 
     buildFeatures {
         compose = true
-        buildConfig = true // Aktifkan modul BuildConfig aman
+        buildConfig = true
     }
+
+    buildTypes {
+        getByName("debug") {
+            // Memaksa sistem biner menggunakan tanda tangan yang sama agar bisa ditimpa langsung saat update
+            signingConfig = signingConfigs.getByName("debug")
+        }
+    }
+
     composeOptions {
         kotlinCompilerExtensionVersion = "1.5.8"
     }
