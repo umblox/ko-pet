@@ -39,17 +39,18 @@ import com.aipet.app.ui.PetWidgetView
 import com.aipet.app.utils.FaceAnalyzer
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.okhttp.OkHttp
+import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.client.request.header
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.contentType
+import io.ktor.serialization.kotlinx.json.json
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.*
 import java.util.Locale
 import java.util.concurrent.Executors
@@ -68,8 +69,17 @@ class PetService : LifecycleService(), TextToSpeech.OnInitListener, SavedStateRe
     private val NOTIFICATION_ID = 1
     private val CHANNEL_ID = "pet_service_channel"
 
-    // Gunakan HTTP murni tanpa plugin ContentNegotiation global
-    private val jsonClient = HttpClient(OkHttp)
+    // PERBAIKAN REVOLUSIONER: Inisialisasi HttpClient dengan ContentNegotiation 
+    // yang dikunci ketat menggunakan konfigurasi lenient JSON murni standar industri.
+    private val jsonClient = HttpClient(OkHttp) {
+        install(ContentNegotiation) {
+            json(Json {
+                ignoreUnknownKeys = true
+                isLenient = true
+                encodeDefaults = true
+            })
+        }
+    }
 
     private val savedStateRegistryController = SavedStateRegistryController.create(this)
     override val savedStateRegistry: SavedStateRegistry
@@ -259,8 +269,7 @@ class PetService : LifecycleService(), TextToSpeech.OnInitListener, SavedStateRe
         val systemPrompt = "Kamu adalah robot AI imut bernama Buddy. Jawab singkat maksimal dua kalimat."
 
         try {
-            // FIX MUTAKHIR: Gunakan map biner builder resmi. 
-            // Pustaka ini otomatis menangani standardisasi spasi, escape, dan encoding UTF-8 mic secara industri.
+            // Membangun payload JSON murni lewat JsonObject resmi Kotlinx
             val contentBody = buildJsonObject {
                 put("model", "llama3-8b-8192")
                 putJsonArray("messages") {
@@ -275,13 +284,12 @@ class PetService : LifecycleService(), TextToSpeech.OnInitListener, SavedStateRe
                 }
             }
 
-            // Kunci enkripsi json ke bentuk String murni berbaris tunggal yang valid bagi server Groq
-            val finalPayload = Json.encodeToString(contentBody)
-
+            // PERBAIKAN MUTAKHIR: Lempar JsonObject langsung ke Ktor setBody. 
+            // Kombinasi plugin ContentNegotiation global di atas otomatis menyusun header Application/Json secara legal ke Groq.
             val response = jsonClient.post(url) {
                 contentType(ContentType.Application.Json)
                 header("Authorization", "Bearer $apiKey")
-                setBody(finalPayload)
+                setBody(contentBody) 
             }
 
             val responseBody = response.bodyAsText()
